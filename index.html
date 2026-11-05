@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8">
+  <title>Paušály & Účty domácnosti</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="icon" type="image/png" href="https://img.icons8.com/color/96/wallet.png">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <script>
+    const manifest = {
+      "name": "Správa Paušálov",
+      "short_name": "Paušály",
+      "start_url": window.location.href,
+      "display": "standalone",
+      "background_color": "#0f172a",
+      "theme_color": "#0f172a",
+      "icons": [
+        { "src": "https://img.icons8.com/color/192/wallet.png", "sizes": "192x192", "type": "image/png" },
+        { "src": "https://img.icons8.com/color/512/wallet.png", "sizes": "512x512", "type": "image/png" }
+      ]
+    };
+    const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+    document.write(`<link rel="manifest" href="${URL.createObjectURL(manifestBlob)}">`);
+  </script>
+
+  <style>
+    :root {
+      --bg: #0f172a; --card-bg: #1e293b; --border: #334155;
+      --text: #f8fafc; --text-muted: #94a3b8; --primary: #3b82f6;
+      --success: #10b981; --warning: #f59e0b; --danger: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+      background-color: var(--bg); 
+      color: var(--text); 
+      margin: 0; 
+      padding: 16px; 
+    }
+    
+    .header-title { margin-bottom: 20px; }
+    
+    /* Layout pre Desktop (Split View) vs Mobile */
+    .main-layout {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .dashboard-col { width: 100%; }
+    .list-col { width: 100%; }
+
+    @media (min-width: 1024px) {
+      .main-layout { flex-direction: row; align-items: flex-start; }
+      .dashboard-col { width: 45%; position: sticky; top: 16px; }
+      .list-col { width: 55%; }
+    }
+    
+    /* Stats & Charts */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .stat-card { background: var(--card-bg); border: 1px solid var(--border); padding: 16px; border-radius: 12px; }
+    .stat-title { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 6px; display: block; }
+    .stat-value { font-size: 1.6rem; font-weight: 700; color: var(--text); }
+    .stat-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; display: block; }
+
+    .charts-wrapper { display: flex; flex-direction: column; gap: 20px; margin-bottom: 24px; }
+    .chart-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; }
+    .chart-card h3 { margin-top: 0; margin-bottom: 12px; font-size: 1rem; color: var(--text-muted); }
+    .canvas-container { position: relative; width: 100%; height: 240px; }
+
+    /* Modals */
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.75); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 16px; backdrop-filter: blur(4px); }
+    .modal-content { background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; max-width: 600px; width: 100%; padding: 24px; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 16px; }
+    
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+    .form-group { display: flex; flex-direction: column; }
+    label { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; }
+    input, select { background: #0f172a; border: 1px solid var(--border); color: white; padding: 10px 12px; border-radius: 8px; font-size: 0.95rem; }
+    input:focus, select:focus { outline: none; border-color: var(--primary); }
+    
+    .btn { background: var(--primary); color: white; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-cancel { background: #475569; }
+    .btn-add-main { width: 100%; background: #3b82f6; font-size: 1.05rem; padding: 12px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(59, 130, 246, 0.25); }
+
+    /* Payment List & Menus */
+    .payments-list { display: flex; flex-direction: column; gap: 10px; }
+    .payment-item { background: var(--card-bg); border: 1px solid var(--border); border-left: 5px solid var(--border); padding: 14px 16px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; gap: 12px; position: relative; }
+    .payment-item.urgent { border-left-color: var(--danger); }
+    .payment-item.soon { border-left-color: var(--warning); }
+    .payment-item.ok { border-left-color: var(--success); }
+    
+    .item-name { font-size: 1.05rem; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;}
+    .badge { font-size: 0.7rem; padding: 3px 8px; border-radius: 10px; background: #334155; color: var(--text-muted); font-weight: 500; }
+    .badge-alert { background: rgba(239,68,68,0.2); color: #fca5a5; border: 1px solid #ef4444; }
+    .item-meta { font-size: 0.85rem; color: var(--text-muted); }
+    
+    .item-right { display: flex; align-items: center; gap: 16px; }
+    .item-price { text-align: right; }
+    .price-main { font-size: 1.15rem; font-weight: 700; color: white; }
+    .price-normalized { font-size: 0.75rem; color: var(--text-muted); }
+    
+    .item-actions { display: flex; align-items: center; gap: 8px; }
+    .btn-sm { padding: 8px 12px; font-size: 0.85rem; border-radius: 8px; cursor: pointer; border: none; color: white; font-weight: 600; }
+    .btn-paid { background: #059669; box-shadow: 0 2px 4px rgba(5, 150, 105, 0.3); } 
+    
+    /* Kebab Menu (3 bodky) */
+    .btn-menu { background: transparent; color: var(--text-muted); font-size: 1.2rem; padding: 4px 8px; cursor: pointer; border: none; border-radius: 4px; }
+    .btn-menu:hover { background: #334155; color: white; }
+    
+    .context-menu {
+      position: absolute; right: 16px; top: 50px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px;
+      display: none; flex-direction: column; min-width: 140px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 10; overflow: hidden;
+    }
+    .context-menu.show { display: flex; }
+    .menu-item { padding: 12px 16px; color: var(--text); font-size: 0.9rem; border: none; background: transparent; text-align: left; cursor: pointer; border-bottom: 1px solid #1e293b; display: flex; align-items: center; gap: 10px; }
+    .menu-item:last-child { border-bottom: none; }
+    .menu-item:hover { background: #1e293b; }
+    .menu-item.danger { color: #fca5a5; }
+
+    .history-entry { background: #0f172a; border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+    .diff-badge { font-size: 0.75rem; font-weight: 700; padding: 3px 8px; border-radius: 6px; }
+    .diff-plus { background: #7f1d1d; color: #fca5a5; } .diff-minus { background: #064e3b; color: #6ee7b7; } .diff-neutral { background: #334155; color: #cbd5e1; }
+    
+    #loader { text-align: center; color: var(--primary); font-weight: 600; margin: 15px 0; }
+    @media (max-width: 650px) { .payment-item { flex-direction: column; align-items: flex-start; } .item-right { width: 100%; justify-content: space-between; margin-top: 12px; } }
+  </style>
+</head>
+<body onclick="closeAllMenus(event)">
+
+<div class="container">
+  <h2 class="header-title">💳 Paušály & Účty domácnosti</h2>
+
+  <div class="main-layout">
+    
+    <!-- ĽAVÝ STĹPEC: Analytika (Dashboard) -->
+    <div class="dashboard-col">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-title">Mesačný náklad (Normalizovaný)</span>
+          <span class="stat-value" id="stat-monthly">0.00 €</span>
+          <span class="stat-hint">Prepočítané vrátane ročných platieb</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-title">Cash-Flow tento mesiac</span>
+          <span class="stat-value" id="stat-cashflow" style="color: #60a5fa;">0.00 €</span>
+          <span class="stat-hint">Suma splatná v aktuálnom mesiaci</span>
+        </div>
+      </div>
+
+      <div class="charts-wrapper" id="dashboard-charts" style="display: none;">
+        <div class="chart-card">
+          <h3>Rozloženie výdavkov</h3>
+          <div class="canvas-container"><canvas id="categoryChart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h3>Projekcia Cash-Flow (12 mesiacov)</h3>
+          <div class="canvas-container"><canvas id="projectionChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PRAVÝ STĹPEC: Zoznam platieb -->
+    <div class="list-col">
+      <button class="btn btn-add-main" onclick="openFormModal()">+ Pridať nový paušál</button>
+
+      <div id="loader" style="display: none;">Komunikujem s databázou...</div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 style="margin:0;">Zoznam platieb</h3>
+        <select id="sort-select" onchange="renderList()" style="padding: 6px 10px; font-size: 0.85rem; background: #0f172a; color: white; border: 1px solid var(--border); border-radius: 6px;">
+          <option value="date">Splatnosť</option>
+          <option value="priceDesc">Najvyššia suma</option>
+        </select>
+      </div>
+      
+      <div id="payments-container" class="payments-list"></div>
+    </div>
+    
+  </div>
+</div>
+
+<!-- Modálne okno: Formulár -->
+<div id="form-modal" class="modal-overlay" onclick="closeModalOnBg(event, 'form-modal')">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 style="margin:0;" id="form-title">Pridať nový paušál</h3>
+      <button class="btn btn-sm btn-cancel" onclick="closeFormModal()">✕</button>
+    </div>
+    <form id="payment-form">
+      <input type="hidden" id="item-id">
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="nazov">Názov služby *</label>
+          <input type="text" id="nazov" required placeholder="Napr. Plyn, Netflix">
+        </div>
+        <div class="form-group">
+          <label for="kategoria">Kategória</label>
+          <select id="kategoria">
+            <option value="Bývanie">Bývanie (Nájom, hypotéka)</option>
+            <option value="Energie">Energie (Elektrina, plyn)</option>
+            <option value="Poistenie">Poistenie (PZP, životné)</option>
+            <option value="Telekomunikácie">Telekomunikácie (Internet, TV)</option>
+            <option value="Streamovanie">Streamovanie (Netflix, Spotify)</option>
+            <option value="Predplatné">Predplatné (Appky, noviny)</option>
+            <option value="Softvér">Softvér (Adobe, Microsoft)</option>
+            <option value="Iné">Iné</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="suma">Suma (€) *</label>
+          <input type="number" step="0.01" id="suma" required placeholder="0.00">
+        </div>
+        <div class="form-group">
+          <label for="frekvencia">Frekvencia</label>
+          <select id="frekvencia">
+            <option value="Mesačne">Mesačne</option>
+            <option value="Kvartálne">Kvartálne</option>
+            <option value="Polročne">Polročne</option>
+            <option value="Ročne">Ročne</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="najblizsia_platba">Najbližšia platba *</label>
+          <input type="date" id="najblizsia_platba" required>
+        </div>
+        <div class="form-group">
+          <label for="koniec_viazanosti">Koniec viazanosti (voliteľné)</label>
+          <input type="date" id="koniec_viazanosti">
+        </div>
+        <div class="form-group" style="grid-column: 1 / -1;">
+          <label for="email_filter">Filter pre auto-čítanie z E-mailu</label>
+          <input type="text" id="email_filter" placeholder='napr. from:faktury@telekom.sk subject:"Faktúra"'>
+        </div>
+        <div class="form-group" style="grid-column: 1 / -1;">
+          <label for="poznamka">Poznámka</label>
+          <input type="text" id="poznamka" placeholder="Variabilný symbol, URL na zrušenie...">
+        </div>
+      </div>
+      <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+        <button type="button" class="btn btn-cancel" onclick="closeFormModal()">Zrušiť</button>
+        <button type="submit" class="btn" id="btn-submit">Uložiť paušál</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modálne okno: História -->
+<div id="history-modal" class="modal-overlay" onclick="closeModalOnBg(event, 'history-modal')">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 style="margin:0;" id="modal-history-title">📈 Vývoj ceny</h3>
+      <button class="btn btn-sm btn-cancel" onclick="closeHistoryModal()">✕</button>
+    </div>
+    <div style="position: relative; width: 100%; height: 200px; margin-bottom: 20px; background: #0f172a; border-radius: 8px; padding: 10px;"><canvas id="priceChart"></canvas></div>
+    <div id="modal-history-body">Načítavam históriu...</div>
+  </div>
+</div>
+
+<script>
+  let payments = [];
+  let priceChartInstance = null;
+  let categoryChartInstance = null;
+  let projectionChartInstance = null;
+
+  document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById('najblizsia_platba').valueAsDate = new Date();
+    loadPayments();
+  });
+
+  function loadPayments() {
+    showLoader(true);
+    google.script.run
+      .withSuccessHandler(response => { 
+        showLoader(false); 
+        if (response.success) { 
+          payments = response.data; 
+          calculateStatsAndCharts(); 
+          renderList(); 
+        } else alert("Chyba: " + response.error); 
+      })
+      .withFailureHandler(handleError).getPayments();
+  }
+
+  function calculateStatsAndCharts() {
+    let monthlyNormTotal = 0;
+    let cashFlowCurrentMonth = 0;
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    let catTotals = {};
+    let projLabels = [];
+    let projByCategory = {}; 
+
+    for(let i=0; i<12; i++) {
+        let d = new Date(currentYear, currentMonth + i, 1);
+        projLabels.push(d.toLocaleDateString('sk-SK', { month: 'short', year: '2-digit' }));
+    }
+
+    payments.forEach(p => {
+      let mCost = p.suma;
+      if (p.frekvencia === 'Kvartálne') mCost = p.suma / 3;
+      else if (p.frekvencia === 'Polročne') mCost = p.suma / 6;
+      else if (p.frekvencia === 'Ročne') mCost = p.suma / 12;
+      
+      monthlyNormTotal += mCost;
+      let shortCat = p.kategoria ? p.kategoria.split(' (')[0] : 'Iné';
+      catTotals[shortCat] = (catTotals[shortCat] || 0) + mCost;
+
+      if (!projByCategory[shortCat]) {
+          projByCategory[shortCat] = new Array(12).fill(0);
+      }
+
+      if (p.najblizsia_platba) {
+        let paymentD = new Date(p.najblizsia_platba);
+        if (paymentD.getFullYear() === currentYear && paymentD.getMonth() === currentMonth) {
+          cashFlowCurrentMonth += p.suma;
+        }
+
+        let simDate = new Date(p.najblizsia_platba);
+        for (let j = 0; j < 24; j++) {
+            let diffMonths = (simDate.getFullYear() - currentYear) * 12 + (simDate.getMonth() - currentMonth);
+            if (diffMonths >= 0 && diffMonths < 12) {
+                projByCategory[shortCat][diffMonths] += p.suma;
+            }
+            if (diffMonths >= 12) break; 
+
+            if (p.frekvencia === 'Mesačne') simDate.setMonth(simDate.getMonth() + 1);
+            else if (p.frekvencia === 'Kvartálne') simDate.setMonth(simDate.getMonth() + 3);
+            else if (p.frekvencia === 'Polročne') simDate.setMonth(simDate.getMonth() + 6);
+            else if (p.frekvencia === 'Ročne') simDate.setFullYear(simDate.getFullYear() + 1);
+        }
+      }
+    });
+
+    document.getElementById('stat-monthly').innerText = monthlyNormTotal.toFixed(2) + " €";
+    document.getElementById('stat-cashflow').innerText = cashFlowCurrentMonth.toFixed(2) + " €";
+
+    renderDashboardCharts(catTotals, projLabels, projByCategory);
+  }
+
+  function renderDashboardCharts(catTotals, projLabels, projByCategory) {
+    document.getElementById('dashboard-charts').style.display = payments.length > 0 ? 'flex' : 'none';
+    
+    const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
+    const catLabels = Object.keys(catTotals);
+    const catData = Object.values(catTotals);
+
+    if (categoryChartInstance) categoryChartInstance.destroy();
+    const ctxCat = document.getElementById('categoryChart').getContext('2d');
+    categoryChartInstance = new Chart(ctxCat, {
+      type: 'doughnut',
+      data: {
+        labels: catLabels,
+        datasets: [{ data: catData, backgroundColor: colors, borderWidth: 1, borderColor: '#1e293b' }]
+      },
+      options: { 
+        responsive: true, maintainAspectRatio: false, cutout: '70%',
+        plugins: { legend: { position: 'right', labels: { color: '#94a3b8', font: {size: 11} } } } 
+      }
+    });
+
+    let barDatasets = catLabels.map((cat, index) => {
+        return {
+            label: cat,
+            data: projByCategory[cat] || new Array(12).fill(0),
+            backgroundColor: colors[index % colors.length],
+            borderRadius: 0
+        };
+    });
+
+    if (projectionChartInstance) projectionChartInstance.destroy();
+    const ctxProj = document.getElementById('projectionChart').getContext('2d');
+    projectionChartInstance = new Chart(ctxProj, {
+      type: 'bar',
+      data: {
+        labels: projLabels,
+        datasets: barDatasets
+      },
+      options: { 
+        responsive: true, maintainAspectRatio: false, 
+        plugins: { 
+            legend: { display: false },
+            tooltip: {
+                callbacks: {
+                    label: function(context) { return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + ' €'; }
+                }
+            }
+        }, 
+        scales: { 
+          y: { stacked: true, ticks: { color: '#94a3b8' }, grid: { color: '#334155' } }, 
+          x: { stacked: true, ticks: { color: '#94a3b8' }, grid: { display: false } } 
+        } 
+      }
+    });
+  }
+
+  function renderList() {
+    const container = document.getElementById('payments-container');
+    container.innerHTML = '';
+    if (payments.length === 0) return container.innerHTML = '<p style="text-align:center; color: var(--text-muted); padding: 40px 0;">Žiadne zaevidované platby. Klikni na + Pridať paušál.</p>';
+
+    const sortType = document.getElementById('sort-select').value;
+    payments.sort((a, b) => sortType === 'date' ? new Date(a.najblizsia_platba) - new Date(b.najblizsia_platba) : b.suma - a.suma);
+
+    const today = new Date(); today.setHours(0,0,0,0);
+
+    payments.forEach(p => {
+      const diffDays = Math.ceil((new Date(p.najblizsia_platba) - today) / (1000 * 60 * 60 * 24));
+      let statusClass = 'ok', statusText = `Splatné o ${diffDays} dní (${p.najblizsia_platba})`;
+      if (diffDays < 0) { statusClass = 'urgent'; statusText = `Po termíne (${Math.abs(diffDays)} dní)`; } 
+      else if (diffDays <= 3) { statusClass = 'urgent'; statusText = `Splatné o ${diffDays} dni!`; } 
+      else if (diffDays <= 10) { statusClass = 'soon'; }
+
+      let normText = p.frekvencia !== 'Mesačne' ? `(${(p.frekvencia === 'Ročne' ? p.suma/12 : (p.frekvencia === 'Polročne' ? p.suma/6 : (p.frekvencia === 'Kvartálne' ? p.suma/3 : p.suma))).toFixed(2)} €/mes)` : "";
+      
+      let viazanostHtml = "";
+      if (p.koniec_viazanosti) {
+        const vDays = Math.ceil((new Date(p.koniec_viazanosti) - today) / (1000 * 60 * 60 * 24));
+        if (vDays <= 30 && vDays >= 0) viazanostHtml = `<span class="badge badge-alert">⚠️ Viazanosť končí o ${vDays} dní!</span>`;
+        else viazanostHtml = `<span class="badge" style="background:#0f172a;">Do: ${p.koniec_viazanosti}</span>`;
+      }
+
+      const safeJson = JSON.stringify(p).replace(/'/g, "'");
+
+      const card = document.createElement('div');
+      card.className = `payment-item ${statusClass}`;
+      card.innerHTML = `
+        <div class="item-info">
+          <div class="item-name">
+            ${escapeHtml(p.nazov)}
+            <span class="badge">${escapeHtml(p.kategoria.split(' (')[0])}</span>
+            ${viazanostHtml}
+          </div>
+          <div class="item-meta">
+            ${statusText} ${p.email_filter ? ' 🤖' : ''}
+            ${p.poznamka ? `<br><small style="color:#64748b;">${escapeHtml(p.poznamka)}</small>` : ''}
+          </div>
+        </div>
+        <div class="item-right">
+          <div class="item-price"><div class="price-main">${p.suma.toFixed(2)} €</div><div class="price-normalized">${normText}</div></div>
+          <div class="item-actions">
+            <button id="btn-paid-${p.id}" class="btn-sm btn-paid" onclick="markPaid('${p.id}', this)" title="Zaplatené (Uložiť do archívu)">✅ Zaplatené</button>
+            
+            <button class="btn-menu" onclick="toggleMenu(event, 'menu-${p.id}')">⋮</button>
+            <div id="menu-${p.id}" class="context-menu">
+                <button class="menu-item" onclick="viewHistory('${p.id}', '${escapeHtml(p.nazov)}')">📈 Zobraziť históriu cien</button>
+                <button class="menu-item" onclick='editPayment(${safeJson})'>✏️ Upraviť paušál</button>
+                <button class="menu-item danger" onclick="deleteItem('${p.id}')">🗑️ Vymazať navždy</button>
+            </div>
+          </div>
+        </div>
+      `;
+      container.appendChild(card);
+    });
+  }
+
+  // --- Ošetrenie menu ---
+  function toggleMenu(event, menuId) {
+    event.stopPropagation();
+    const menu = document.getElementById(menuId);
+    const isShowing = menu.classList.contains('show');
+    closeAllMenus();
+    if (!isShowing) menu.classList.add('show');
+  }
+
+  function closeAllMenus(event) {
+    document.querySelectorAll('.context-menu').forEach(menu => {
+      menu.classList.remove('show');
+    });
+  }
+
+  // --- Formulár ---
+  function openFormModal() { document.getElementById('form-modal').style.display = 'flex'; }
+  function closeFormModal() { document.getElementById('form-modal').style.display = 'none'; resetForm(); }
+  function closeHistoryModal() { document.getElementById('history-modal').style.display = 'none'; }
+  
+  function closeModalOnBg(e, modalId) { 
+    if (e.target.id === modalId) {
+      if (modalId === 'form-modal') closeFormModal();
+      else closeHistoryModal();
+    }
+  }
+
+  document.getElementById('payment-form').addEventListener('submit', function(e) {
+    e.preventDefault(); 
+    closeFormModal();
+    showLoader(true);
+    const itemData = {
+      id: document.getElementById('item-id').value || null,
+      nazov: document.getElementById('nazov').value,
+      kategoria: document.getElementById('kategoria').value,
+      suma: parseFloat(document.getElementById('suma').value),
+      frekvencia: document.getElementById('frekvencia').value,
+      najblizsia_platba: document.getElementById('najblizsia_platba').value,
+      koniec_viazanosti: document.getElementById('koniec_viazanosti').value,
+      email_filter: document.getElementById('email_filter').value,
+      poznamka: document.getElementById('poznamka').value
+    };
+    google.script.run.withSuccessHandler(() => { showLoader(false); loadPayments(); }).withFailureHandler(handleError)[itemData.id ? 'updatePayment' : 'addPayment'](itemData);
+  });
+
+  function editPayment(item) {
+    document.getElementById('form-title').innerText = "Upraviť paušál";
+    document.getElementById('item-id').value = item.id;
+    document.getElementById('nazov').value = item.nazov;
+    let catSelect = document.getElementById('kategoria');
+    let matched = Array.from(catSelect.options).find(o => o.value === item.kategoria);
+    catSelect.value = matched ? matched.value : "Iné";
+    document.getElementById('suma').value = item.suma;
+    document.getElementById('frekvencia').value = item.frekvencia;
+    document.getElementById('najblizsia_platba').value = item.najblizsia_platba;
+    document.getElementById('koniec_viazanosti').value = item.koniec_viazanosti || '';
+    document.getElementById('email_filter').value = item.email_filter || '';
+    document.getElementById('poznamka').value = item.poznamka;
+    document.getElementById('btn-submit').innerText = "Uložiť zmeny";
+    
+    openFormModal();
+  }
+
+  function resetForm() {
+    document.getElementById('form-title').innerText = "Pridať nový paušál";
+    document.getElementById('item-id').value = '';
+    document.getElementById('payment-form').reset();
+    document.getElementById('najblizsia_platba').valueAsDate = new Date();
+    document.getElementById('btn-submit').innerText = "Uložiť paušál";
+  }
+
+  // --- História ---
+  function viewHistory(paymentId, name) {
+    document.getElementById('modal-history-title').innerText = "📈 Vývoj ceny: " + name;
+    document.getElementById('modal-history-body').innerHTML = "<p style='color:var(--text-muted);'>Načítavam...</p>";
+    document.getElementById('history-modal').style.display = "flex";
+
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res.success) return document.getElementById('modal-history-body').innerText = "Chyba: " + res.error;
+        const list = res.data;
+        if (list.length === 0) return document.getElementById('modal-history-body').innerHTML = "<p style='color:var(--text-muted);'>Zatiaľ žiadna zmena sumy.</p>";
+
+        if (priceChartInstance) priceChartInstance.destroy();
+        const ctx = document.getElementById('priceChart').getContext('2d');
+        const chartData = [...list].reverse();
+        priceChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: chartData.map(h => h.datum.split(' ')[0]),
+                datasets: [{ label: 'Cena (€)', data: chartData.map(h => h.nova_suma), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.2)', tension: 0.3, fill: true, pointRadius: 5 }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { ticks: { color: '#94a3b8' } }, x: { ticks: { color: '#94a3b8' } } } }
+        });
+
+        let html = "";
+        list.forEach(h => {
+          let badgeClass = h.rozdiel > 0 && h.typ_akcie !== 'Vytvorenie paušálu' ? "diff-plus" : (h.rozdiel < 0 ? "diff-minus" : "diff-neutral");
+          html += `
+            <div class="history-entry">
+              <div>
+                <strong style="color:white; font-size:1.05rem;">${h.nova_suma.toFixed(2)} €</strong>
+                ${h.stara_suma > 0 ? `<small style="color:var(--text-muted); text-decoration:line-through; margin-left:6px;">${h.stara_suma.toFixed(2)} €</small>` : ''}
+                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">${h.datum} • <em>${escapeHtml(h.typ_akcie)}</em></div>
+              </div>
+              <div>
+                ${h.typ_akcie !== 'Vytvorenie paušálu' ? `<span class="diff-badge ${badgeClass}">${h.rozdiel > 0 ? '+' : ''}${h.rozdiel.toFixed(2)} €</span>` : `<span class="diff-badge diff-neutral">Vznik</span>`}
+              </div>
+            </div>`;
+        });
+        document.getElementById('modal-history-body').innerHTML = html;
+      }).getPaymentHistory(paymentId);
+  }
+
+  function markPaid(id, btn) { 
+    btn.innerHTML = "Archivujem...";
+    btn.style.background = "#047857";
+    google.script.run
+      .withSuccessHandler(() => loadPayments())
+      .markAsPaid(id); 
+  }
+  
+  function deleteItem(id) { if (confirm("Naozaj vymazať?")) { showLoader(true); google.script.run.withSuccessHandler(() => loadPayments()).deletePayment(id); } }
+  function showLoader(show) { document.getElementById('loader').style.display = show ? 'block' : 'none'; }
+  function handleError(err) { showLoader(false); alert("Chyba: " + err); }
+  function escapeHtml(str) { return str ? String(str).replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">").replace(/"/g, """) : ''; }
+</script>
+</body>
+</html>
